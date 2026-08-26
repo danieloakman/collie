@@ -33,7 +33,10 @@ beforeAll(() => {
 });
 beforeEach(() => clearStatus());
 
-function renderChat(overrides: Partial<ComponentProps<typeof AgentChat>> = {}) {
+function renderChat(
+  overrides: Partial<ComponentProps<typeof AgentChat>> = {},
+  opts: { tab?: "chat" | "live" | "files" | "diffs" } = {},
+) {
   const agent = fixtureAgents[0]!; // a blocked claude agent
   const props: ComponentProps<typeof AgentChat> = {
     paneId: agent.paneId,
@@ -46,7 +49,12 @@ function renderChat(overrides: Partial<ComponentProps<typeof AgentChat>> = {}) {
     onSelect: vi.fn(),
     ...overrides,
   };
-  const router = createMemoryRouter([{ path: "/", element: <AgentChat {...props} /> }]);
+  // Mirror / prompt-block tests need Live; production default is Chat (`tab` omitted).
+  const tab = opts.tab ?? "live";
+  const entry = tab === "chat" ? "/" : `/?tab=${tab}`;
+  const router = createMemoryRouter([{ path: "/", element: <AgentChat {...props} /> }], {
+    initialEntries: [entry],
+  });
   render(<RouterProvider router={router} />);
   return props;
 }
@@ -294,7 +302,9 @@ describe("AgentChat — prompt-select race guard wiring (frozen {text, revision}
         />
       );
     }
-    const router = createMemoryRouter([{ path: "/", element: <Harness /> }]);
+    const router = createMemoryRouter([{ path: "/", element: <Harness /> }], {
+      initialEntries: ["/?tab=live"],
+    });
     render(<RouterProvider router={router} />);
     return (pane: { text: string; revision: number }) => advance(pane);
   }
@@ -501,84 +511,53 @@ describe("AgentChat — shared header: stale-status dimming", () => {
   });
 });
 
-// The History affordance opens the agent's own transcript — the only real scrollback a Claude pane
-// has, because its terminal runs on the alternate screen and Herdr retains nothing behind the
-// viewport. It's gated on the pane actually reporting an agent session, so the button can never
-// lead to an empty screen.
-describe("AgentChat — history affordance", () => {
-  it("is offered when the pane reports an agent session id", () => {
-    const agent = { ...fixtureAgents[0]!, hasSession: true };
-    renderChat({ agent, agents: [agent] });
-    expect(screen.getByRole("button", { name: /conversation history/i })).toBeInTheDocument();
+// Feature tabs: Chat (default) / Live / Files / Diffs. History lives in Chat now.
+describe("AgentChat — feature tabs", () => {
+  it("defaults to Chat when no tab query is set", () => {
+    renderChat({}, { tab: "chat" });
+    expect(screen.getByRole("tab", { name: /^chat$/i })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("is hidden when the pane has no agent session (a shell, or a harness without one)", () => {
-    renderChat(); // fixture agents carry no session
-    expect(screen.queryByRole("button", { name: /conversation history/i })).not.toBeInTheDocument();
-  });
-
-  // Deliberate placement, not an accident of slot order: the status pill stays the rightmost thing on
-  // the pane screen (it's what you glance at), so History sits to its LEFT.
-  //
-  // (The top-of-mirror affordance is covered separately below.)
-  it("sits to the LEFT of the status pill", () => {
-    const agent = { ...fixtureAgents[0]!, hasSession: true };
-    renderChat({ agent, agents: [agent] });
-    const history = screen.getByRole("button", { name: /conversation history/i });
-    const pill = screen.getByText("needs you"); // fixtureAgents[0] is blocked → "needs you"
-    // Node.compareDocumentPosition: FOLLOWING (4) means the pill comes after History in the DOM.
-    expect(history.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it("exposes Live / Files / Diffs tabs", () => {
+    renderChat();
+    expect(screen.getByRole("tab", { name: /^live$/i })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: /^files$/i })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^diffs$/i })).toBeInTheDocument();
   });
 });
 
-// The top-of-mirror affordance. This block previously rendered on NO pane at all: it was gated on
-// `truncated`, which Herdr never sets true even when a read demonstrably cut scrollback off. The
-// working signal is `readableLines` (scrollback depth + viewport), and which button appears is
-// decided by what the pane can actually offer — the two are never simultaneously possible.
-describe("AgentChat — top-of-mirror history affordance", () => {
-  const showHistory = () => screen.queryByRole("button", { name: /show entire history/i });
+// Load older on the Live mirror — only for panes with real PTY scrollback (shells). Agent
+// transcripts are on the Chat tab, not a top-of-mirror history button.
+describe("AgentChat — top-of-mirror scrollback", () => {
   const loadOlder = () => screen.queryByRole("button", { name: /load older/i });
 
-  it("an agent pane with a transcript offers the full history, not scrollback paging", () => {
-    // A Claude pane: alt-screen, so readableLines is just its viewport — there IS no scrollback.
-    const agent = { ...fixtureAgents[0]!, hasSession: true, readableLines: 51 };
-    renderChat({ agent, agents: [agent], requestedLines: 600 });
-    expect(showHistory()).toBeInTheDocument();
-    expect(loadOlder()).not.toBeInTheDocument();
-  });
-
-  it("a pane with real scrollback and no transcript offers Load older", () => {
-    // A shell on the primary screen: 6895 lines of ring + 51 viewport, and we've only asked for 600.
+  it("a pane with real scrollback offers Load older", () => {
     const agent = { ...fixtureAgents[0]!, kind: "shell" as const, readableLines: 6946 };
     renderChat({ agent, agents: [agent], requestedLines: 600 });
     expect(loadOlder()).toBeInTheDocument();
-    expect(showHistory()).not.toBeInTheDocument();
   });
 
-  it("offers nothing when the pane has neither", () => {
+  it("offers nothing when the pane has no extra scrollback", () => {
     const agent = { ...fixtureAgents[0]!, kind: "shell" as const, readableLines: 51 };
     renderChat({ agent, agents: [agent], requestedLines: 600 });
     expect(loadOlder()).not.toBeInTheDocument();
-    expect(showHistory()).not.toBeInTheDocument();
   });
 
   it("hides Load older once the window already covers everything Herdr can return", () => {
     const agent = { ...fixtureAgents[0]!, kind: "shell" as const, readableLines: 700 };
-    renderChat({ agent, agents: [agent], requestedLines: 1000 }); // at the cap, past the content
+    renderChat({ agent, agents: [agent], requestedLines: 1000 });
     expect(loadOlder()).not.toBeInTheDocument();
   });
 
-  it("stays hidden when readableLines is unknown (older bridge) rather than offering a dud tap", () => {
-    const agent = { ...fixtureAgents[0]!, kind: "shell" as const }; // no readableLines
+  it("stays hidden when readableLines is unknown (older bridge)", () => {
+    const agent = { ...fixtureAgents[0]!, kind: "shell" as const };
     renderChat({ agent, agents: [agent], requestedLines: 600 });
     expect(loadOlder()).not.toBeInTheDocument();
-    expect(showHistory()).not.toBeInTheDocument();
   });
 
-  it("a transcript wins even when the pane also reports scrollback", () => {
-    const agent = { ...fixtureAgents[0]!, hasSession: true, readableLines: 6946 };
+  it("does not offer Load older on an agent alt-screen pane (use Chat for transcript)", () => {
+    const agent = { ...fixtureAgents[0]!, hasSession: true, readableLines: 51 };
     renderChat({ agent, agents: [agent], requestedLines: 600 });
-    expect(showHistory()).toBeInTheDocument();
     expect(loadOlder()).not.toBeInTheDocument();
   });
 });

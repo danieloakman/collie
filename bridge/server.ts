@@ -23,6 +23,14 @@ import { adapterFor, buildJournalRegistry } from "./journal/registry.ts";
 import { TranscriptStore } from "./journal/store.ts";
 import type { JournalAdapter } from "./journal/types.ts";
 import { toPaneWire } from "./types.ts";
+import {
+  gitDiff,
+  gitStatus,
+  listTree,
+  readWorkspaceFile,
+  sanitizeRel,
+  workspaceRootForCwd,
+} from "./workspace-fs.ts";
 import type {
   ActionResponse,
   AgentView,
@@ -93,6 +101,9 @@ const SECURITY_HEADERS: Record<string, string> = {
 const LOOPBACK_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 const PANE_ROUTE = /^\/api\/pane\/([^/]+)(?:\/(reply|keys|upload|close|rename|history))?$/;
+/** Files / Diffs tabs — workspace-scoped reads, never absolute client roots. */
+const PANE_FS_ROUTE = /^\/api\/pane\/([^/]+)\/fs\/(tree|file)$/;
+const PANE_GIT_ROUTE = /^\/api\/pane\/([^/]+)\/git\/(status|diff)$/;
 // Turns per history page. "Show entire history" means the WHOLE conversation, so the client asks for
 // everything and this ceiling is a safety net against a pathological log, not the normal path — a
 // 1400-turn session is ~1.4 MB raw / ~400 KB gzipped, which a tailnet link serves fine. The default
@@ -288,6 +299,32 @@ export function startServer(opts: {
         if (action === "close" && req.method === "POST") return closePane(herdr, paneId, req, audit, device, session);
         if (action === "rename" && req.method === "POST") return renamePane(herdr, paneId, req, audit, device, session);
         return text("method not allowed", 405);
+      }
+
+      // ── Workspace FS / git (Files + Diffs tabs) ───────────────────────────
+      const fsMatch = pathname.match(PANE_FS_ROUTE);
+      if (fsMatch) {
+        const denied = guard(req, cfg, "read");
+        if (denied) return denied;
+        if (req.method !== "GET") return text("method not allowed", 405);
+        const paneId = decodeURIComponent(fsMatch[1]!);
+        const kind = fsMatch[2] as "tree" | "file";
+        const rt = registry.get(sessionName);
+        if (!rt) return unknownSession();
+        if (marksPaneSeen(req, "history")) activity.noteSeen(rt.name, paneId);
+        return paneWorkspaceFs(rt.engine, paneId, kind, url, req);
+      }
+      const gitMatch = pathname.match(PANE_GIT_ROUTE);
+      if (gitMatch) {
+        const denied = guard(req, cfg, "read");
+        if (denied) return denied;
+        if (req.method !== "GET") return text("method not allowed", 405);
+        const paneId = decodeURIComponent(gitMatch[1]!);
+        const kind = gitMatch[2] as "status" | "diff";
+        const rt = registry.get(sessionName);
+        if (!rt) return unknownSession();
+        if (marksPaneSeen(req, "history")) activity.noteSeen(rt.name, paneId);
+        return paneWorkspaceGit(rt.engine, paneId, kind, url, req);
       }
 
       // ── Misc API ─────────────────────────────────────────────────────────
@@ -539,6 +576,76 @@ export function historyParams(url: URL): { limit: number; before?: string } {
  * are a pane id (a Map lookup) and an opaque cursor (an array lookup). Which harness knows how to
  * read the log is the registry's decision, so this route stays agent-agnostic.
  */
+/** Resolve a pane's workspace root from the live snapshot (cwd → git toplevel when applicable). */
+async function paneWorkspaceRoot(engine: StateEngine, paneId: string): Promise<string | null> {
+  const { agents, shellPanes } = engine.current();
+  const pane = [...agents, ...shellPanes].find((a) => a.paneId === paneId);
+  if (!pane?.cwd) return null;
+  return workspaceRootForCwd(pane.cwd);
+}
+
+async function paneWorkspaceFs(
+  engine: StateEngine,
+  paneId: string,
+  kind: "tree" | "file",
+  url: URL,
+  req: Request,
+): Promise<Response> {
+  const root = await paneWorkspaceRoot(engine, paneId);
+  if (root === null) return text("pane not found", 404);
+  const rel = sanitizeRel(url.searchParams.get("path"));
+  if (rel === null) return text("bad path", 400);
+  const accept = req.headers.get("accept-encoding");
+  if (kind === "tree") {
+    const result = await listTree(root, rel);
+    if (result === null) return text("not found", 404);
+    // Do not echo absolute `root` to the client — relative paths are enough.
+    return json(
+      { paneId, path: result.path, entries: result.entries, truncated: result.truncated },
+      accept,
+    );
+  }
+  const result = await readWorkspaceFile(root, rel);
+  if (result === null) return text("not found", 404);
+  return json({ paneId, ...result }, accept);
+}
+
+async function paneWorkspaceGit(
+  engine: StateEngine,
+  paneId: string,
+  kind: "status" | "diff",
+  url: URL,
+  req: Request,
+): Promise<Response> {
+  const root = await paneWorkspaceRoot(engine, paneId);
+  if (root === null) return text("pane not found", 404);
+  const accept = req.headers.get("accept-encoding");
+  if (kind === "status") {
+    const result = await gitStatus(root);
+    if (result === null) return text("not a git repository", 404);
+    return json(
+      { paneId, branch: result.branch, entries: result.entries },
+      accept,
+    );
+  }
+  const relRaw = url.searchParams.get("path");
+  const rel = relRaw === null || relRaw === "" ? undefined : sanitizeRel(relRaw);
+  if (relRaw && rel === null) return text("bad path", 400);
+  const staged = url.searchParams.get("staged") === "1" || url.searchParams.get("staged") === "true";
+  const result = await gitDiff(root, { path: rel || undefined, staged });
+  if (result === null) return text("not a git repository", 404);
+  return json(
+    {
+      paneId,
+      path: result.path,
+      staged: result.staged,
+      text: result.text,
+      truncated: result.truncated,
+    },
+    accept,
+  );
+}
+
 async function paneHistory(
   cfg: Config,
   journals: Record<string, JournalAdapter> | null,

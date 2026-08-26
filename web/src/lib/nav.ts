@@ -8,12 +8,15 @@ export function panePath(paneId: string, session?: string): string {
 }
 
 /**
- * A pane's conversation history — the agent's own transcript, which is the only scrollback a Claude
- * pane can have (its terminal runs on the alternate screen and retains nothing). A child path of the
- * pane so "back" lands on the live mirror.
+ * A pane's conversation history — redirects to the Chat feature tab (transcript is inlined there).
+ * Kept as a path helper so old `/history` links and bookmarks still resolve.
  */
 export function historyPath(paneId: string, session?: string): string {
-  return `/pane/${encodeURIComponent(paneId)}/history${sessionSearch(session)}`;
+  const base = sessionSearch(session);
+  const params = new URLSearchParams(base.startsWith("?") ? base.slice(1) : base);
+  // Chat is the default tab — no `tab=` needed.
+  const qs = params.toString();
+  return `/pane/${encodeURIComponent(paneId)}${qs ? `?${qs}` : ""}`;
 }
 
 /** A space's detail route (its tabs + panes). Deep-linkable; carries the session like panePath. */

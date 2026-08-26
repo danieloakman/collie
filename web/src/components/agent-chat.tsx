@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { useNavigate, useRevalidator } from "react-router";
-import { ArrowUpToLine, Loader2, ScrollText, Search, TerminalSquare } from "lucide-react";
+import { useNavigate, useRevalidator, useSearchParams } from "react-router";
+import { ArrowUpToLine, Loader2, Search, TerminalSquare } from "lucide-react";
 import { useSwipeUp } from "@/hooks/use-swipe";
 import { useSpaceActions } from "@/hooks/use-spaces";
 import { useDashPrefs, openForCount } from "@/hooks/use-dash-prefs";
@@ -20,6 +20,10 @@ import { splitLines } from "@/lib/blocks";
 import { adapterFor } from "@/lib/harness";
 import { FindBar } from "@/components/find-bar";
 import { Composer, type ComposerHandle } from "@/components/composer";
+import { FeatureTabStrip } from "@/components/feature-tab-strip";
+import { PaneChatPanel } from "@/components/pane-chat-panel";
+import { PaneDiffsPanel } from "@/components/pane-diffs-panel";
+import { PaneFilesPanel } from "@/components/pane-files-panel";
 import { ThreadSidebar } from "@/components/agent-sidebar";
 import { AgentIcon } from "@/components/agent-icon";
 import { TabStrip } from "@/components/tab-strip";
@@ -37,7 +41,9 @@ import type { PreviewBlockAction } from "@/components/preview-select-block";
 import type { MenuBlockAction } from "@/components/menu-block";
 import { canGrowRequestedLines, growRequestedLines } from "@/lib/loaders";
 import { shortCwd } from "@/lib/format";
-import { historyPath, spacePath } from "@/lib/nav";
+import { spacePath } from "@/lib/nav";
+import { FEATURE_TAB_PARAM, parseFeatureTab, type FeatureTab } from "@/lib/feature-tab";
+import { SESSION_PARAM } from "@/lib/session";
 import { isReadOnly } from "@/lib/types";
 import type { AgentView, BridgeStatus, DeviceAuth, TabView } from "@/lib/types";
 import type {
@@ -109,6 +115,26 @@ export function AgentChat({
 }: AgentChatProps) {
   const revalidator = useRevalidator();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const featureTab = parseFeatureTab(searchParams.get(FEATURE_TAB_PARAM));
+  const setFeatureTab = useCallback(
+    (tab: FeatureTab) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (tab === "chat") next.delete(FEATURE_TAB_PARAM);
+          else next.set(FEATURE_TAB_PARAM, tab);
+          // Preserve session param if present.
+          const s = prev.get(SESSION_PARAM);
+          if (s) next.set(SESSION_PARAM, s);
+          else next.delete(SESSION_PARAM);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   // Poll-truth "is the data on screen not live". The header (AppHeader) reads the same inputs to drive
   // the Collie mark + pill; here we use it to dim the StatusBadge, so the badge stops presenting the
   // last snapshot's status as current while we're reconnecting/lost, and restores instantly on recovery.
@@ -243,12 +269,9 @@ export function AgentChat({
     setFindQuery("");
   }
 
-  // What the top of the buffer can offer — see the JSX for why these are mutually exclusive.
-  // `historyAvailable`: the pane reported an agent session, so a transcript exists to open.
   // `moreScrollback`: Herdr says this pane can still yield lines beyond the window we've asked for,
   // AND we're under the cap Herdr's own read clamp imposes. `readableLines` is undefined on an older
   // bridge/Herdr; treat that as "no idea" and stay hidden rather than offer a tap that fetches nothing.
-  const historyAvailable = Boolean(agent?.hasSession);
   const moreScrollback =
     agent?.readableLines !== undefined &&
     requestedLines < agent.readableLines &&
@@ -583,27 +606,11 @@ export function AgentChat({
             />
           ) : undefined
         }
-        // Right cluster, in reading order: Find, History, then the agent status pill. The pill is the
-        // rightmost item on every pane screen (it's the thing you glance at), so the buttons sit to
-        // its LEFT rather than trailing it. All ride in `rightLead` because AppHeader renders
-        // `rightLead` before `rightTrail` — the order here IS the on-screen order.
-        //
-        // Find lives HERE, not in the composer, because the find bar it opens takes over this very
-        // header row (see `override` above) — trigger and surface in the same place. It sat in the
-        // composer's old View row, which put the button at the bottom of the screen and its UI at the
-        // top. Offered only when there's buffered output to search; opening it freezes the tail.
-        //
-        // History opens the agent's own transcript, the only real conversation history a Claude pane
-        // has: its terminal runs on the alternate screen, so the mirror below can never show more
-        // than the visible viewport. Offered only when the pane reported an agent session id (i.e. a
-        // transcript can exist at all), so the button never leads to an empty screen.
-        //
-        // The status pill is dimmed while the connection isn't live, so a frozen "working"/"idle"
-        // from the last snapshot doesn't masquerade as current. A bare shell shows a muted "shell" tag.
+        // Right cluster: Find (Live tab only), then the agent status pill.
         rightLead={
           agent ? (
             <>
-              {display && (
+              {featureTab === "live" && display && (
                 <button
                   type="button"
                   onClick={openFind}
@@ -611,16 +618,6 @@ export function AgentChat({
                   className="-mr-1 flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors active:bg-muted/60"
                 >
                   <Search className="size-4" />
-                </button>
-              )}
-              {agent.hasSession && (
-                <button
-                  type="button"
-                  onClick={() => navigate(historyPath(paneId, session))}
-                  aria-label="Conversation history"
-                  className="-mr-1 flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors active:bg-muted/60"
-                >
-                  <ScrollText className="size-4" />
                 </button>
               )}
               {isShell ? (
@@ -720,15 +717,23 @@ export function AgentChat({
           />
         )}
 
-        {/* Terminal mirror — tapping it focuses the composer so you can start typing right away
-            (unless you're selecting text to copy, which the tap must not collapse). */}
-        {/* min-w-0 only — do NOT set overflow-x-hidden here: that forces overflow-y to `auto` (CSS
-            quirk) and makes this wrapper a second vertical scroller competing with ChatMessageList. */}
-        {/* border-t like the strips above it: every band in this stack draws its own TOP edge, so
-            whichever one ends up last still has a boundary under it. Without this the pane row ran
-            straight into terminal output — the chrome and the mirror read as one surface. Drawing it
-            here rather than as a border-b on PaneStrip covers the case where that strip is absent
-            (a tab holding a single pane), which is the common one. */}
+        <FeatureTabStrip value={featureTab} onChange={setFeatureTab} />
+
+        {featureTab === "chat" && (
+          <PaneChatPanel
+            paneId={paneId}
+            session={session}
+            agentStatus={agent?.status}
+            hasSession={agent?.hasSession}
+          />
+        )}
+
+        {featureTab === "files" && <PaneFilesPanel paneId={paneId} session={session} />}
+
+        {featureTab === "diffs" && <PaneDiffsPanel paneId={paneId} session={session} />}
+
+        {/* Live terminal mirror — tapping focuses the composer. */}
+        {featureTab === "live" && (
         <div className="min-h-0 min-w-0 flex-1 border-t border-border/40" onClick={focusFromMirror}>
           <ChatMessageList
             ref={listRef}
@@ -739,30 +744,7 @@ export function AgentChat({
           >
             {display ? (
               <>
-                {/* Top-of-buffer affordance, reached by scrolling up. WHICH button appears is decided
-                    by what the pane can actually offer, because the two are never both possible:
-
-                      • an agent pane with a transcript → "Show entire history". Its terminal runs on
-                        the alternate screen, which keeps no scrollback ring, so the mirror can never
-                        show more than the viewport — the agent's own session log is the only history
-                        that exists (see bridge/transcript.ts).
-                      • a pane with real scrollback (a shell, on the primary screen) → "Load older",
-                        which grows the requested window.
-                      • neither → nothing.
-
-                    This used to be gated on `truncated`, which Herdr never sets true — so the button
-                    rendered on no pane at all. `readableLines` (scrollback depth + viewport) is the
-                    signal that actually works. */}
-                {historyAvailable ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate(historyPath(paneId, session))}
-                    className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-xs font-medium text-muted-foreground transition-colors active:bg-muted/50"
-                  >
-                    <ScrollText className="size-3.5" />
-                    Show entire history
-                  </button>
-                ) : moreScrollback ? (
+                {moreScrollback ? (
                   <button
                     type="button"
                     onClick={loadOlder}
@@ -798,10 +780,9 @@ export function AgentChat({
             )}
           </ChatMessageList>
         </div>
+        )}
 
-        {/* Bottom region: the pane-switch handle + composer. The status line USED to float here as an
-            overlay just above the composer, but it covered the terminal tail (the prompt/cursor and
-            up-levelled prompt buttons) — it now lives as a slim row just below the header. */}
+        {/* Bottom region: the pane-switch handle + composer (Chat + Live). */}
         <div className="relative">
 
           {/* Swipe-up / tap handle for the quick pane switcher — the sheet that switches AND closes
@@ -821,38 +802,17 @@ export function AgentChat({
             </button>
           )}
 
-          {/* The agent's statusline, re-surfaced as app chrome (its branch/model/ctx/permission mode
-              would otherwise vanish with the stripped input box). Sits directly above the composer,
-              as it did in the TUI. Verbatim text — React text nodes, so no XSS surface.
-
-              STACKED, one row per line, each truncated — deliberately, over the two alternatives:
-              joining the rows with a separator would put ~150 chars on a strip that fits ~55 at this
-              size on a phone, truncating away exactly the fields (branch, permission mode) this
-              exists to surface; wrapping makes the strip's height depend on the pane width and turns
-              a column-aligned statusline into ragged prose. Stacking also preserves the shape the
-              user themselves configured in the TUI, so it reads as the same thing they know.
-              Height is bounded upstream (MAX_STATUS_LINES caps the run stripChrome will claim), so
-              there is no second cap here; the mirror is a flex child that shrinks, never pushed off. */}
-          {statusLines.length > 0 && (
+          {featureTab === "live" && statusLines.length > 0 && (
             <div
               className={cn(
                 "border-t border-border/40 px-3 py-1 font-mono text-[11px] leading-tight",
-                // The strip carries the agent's OWN terminal colour, so it renders in the mirror's
-                // dark space and inverts in light with it (ADR 0002) — a bright statusline colour is
-                // chosen against a near-black background and is illegible re-themed onto app chrome.
-                // It also makes the strip read as the bottom of the pane it was cut from, which is
-                // where the TUI drew it.
                 MIRROR_SPACE,
                 MIRROR_INVERT,
               )}
             >
               {statusLines.map((row, i) => (
-                // Index key: these rows are a positional snapshot of the pane tail, re-derived on
-                // every poll — there is no identity to preserve across renders.
                 <div key={i} className="truncate">
                   {row.segments.map((s, si) => (
-                    // Text nodes only — colour and weight come from the ANSI parse, never markup.
-                    // Same XSS boundary as the mirror.
                     <span key={si} style={styleFor(s)}>
                       {s.text}
                     </span>
@@ -862,6 +822,7 @@ export function AgentChat({
             </div>
           )}
 
+          {(featureTab === "chat" || featureTab === "live") && (
           <Composer
             ref={composerRef}
             paneId={paneId}
@@ -881,6 +842,7 @@ export function AgentChat({
             setTapToFocus={setTapToFocus}
             onSent={onSent}
           />
+          )}
         </div>
       </div>
 

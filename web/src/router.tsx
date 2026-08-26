@@ -6,7 +6,7 @@ import { SpaceRoute } from "@/routes/space";
 import { DetailRoute } from "@/routes/detail";
 import { HistoryRoute } from "@/routes/history";
 import { SettingsRoute } from "@/routes/settings";
-import { historyLoader, rootLoader, paneLoader, PANE_ROUTE_ID, ROOT_ROUTE_ID } from "@/lib/loaders";
+import { rootLoader, paneLoader, PANE_ROUTE_ID, ROOT_ROUTE_ID } from "@/lib/loaders";
 
 // We don't use view transitions. React Router persists an "applied view transitions" map to
 // sessionStorage ("remix-router-transitions") and replays a phantom same-location transition on every
@@ -42,13 +42,8 @@ export const router = createBrowserRouter([
       { id: PANE_ROUTE_ID, path: "pane/:paneId", loader: paneLoader, element: <DetailRoute /> },
       {
         path: "pane/:paneId/history",
-        loader: historyLoader,
+        // Legacy URL — redirect into the Chat feature tab (see HistoryRoute).
         element: <HistoryRoute />,
-        // Opt OUT of the poll loop. revalidate() re-runs every active loader, and a transcript can be
-        // hundreds of turns — re-pulling it every 1.5s would be pure waste, and it would fight the
-        // view's own "load older" paging by resetting the page under it. History is fetched on
-        // navigation; the view pages back through it with direct api calls.
-        shouldRevalidate: () => false,
       },
     ],
   },

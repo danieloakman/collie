@@ -298,6 +298,109 @@ export function fetchHistory(
   });
 }
 
+export interface FsTreeEntry {
+  name: string;
+  path: string;
+  kind: "dir" | "file" | "other";
+  size?: number;
+}
+
+export interface FsTreeResponse {
+  paneId: string;
+  path: string;
+  entries: FsTreeEntry[];
+  truncated: boolean;
+}
+
+export interface FsFileResponse {
+  paneId: string;
+  path: string;
+  size: number;
+  truncated: boolean;
+  binary: boolean;
+  text?: string;
+}
+
+export interface GitStatusEntry {
+  path: string;
+  xy: string;
+}
+
+export interface GitStatusResponse {
+  paneId: string;
+  branch?: string;
+  entries: GitStatusEntry[];
+}
+
+export interface GitDiffResponse {
+  paneId: string;
+  path?: string;
+  staged: boolean;
+  text: string;
+  truncated: boolean;
+}
+
+export function fetchFsTree(
+  paneId: string,
+  path = "",
+  session?: string,
+  signal?: AbortSignal,
+): Promise<FsTreeResponse> {
+  const q = new URLSearchParams();
+  if (path) q.set("path", path);
+  const qs = q.toString();
+  return req<FsTreeResponse>(
+    withSession(
+      `/api/pane/${encodeURIComponent(paneId)}/fs/tree${qs ? `?${qs}` : ""}`,
+      session,
+    ),
+    { signal, headers: { "x-collie-seen": "1" } },
+  );
+}
+
+export function fetchFsFile(
+  paneId: string,
+  path: string,
+  session?: string,
+  signal?: AbortSignal,
+): Promise<FsFileResponse> {
+  const q = new URLSearchParams({ path });
+  return req<FsFileResponse>(
+    withSession(`/api/pane/${encodeURIComponent(paneId)}/fs/file?${q}`, session),
+    { signal, headers: { "x-collie-seen": "1" } },
+  );
+}
+
+export function fetchGitStatus(
+  paneId: string,
+  session?: string,
+  signal?: AbortSignal,
+): Promise<GitStatusResponse> {
+  return req<GitStatusResponse>(
+    withSession(`/api/pane/${encodeURIComponent(paneId)}/git/status`, session),
+    { signal, headers: { "x-collie-seen": "1" } },
+  );
+}
+
+export function fetchGitDiff(
+  paneId: string,
+  opts: { path?: string; staged?: boolean } = {},
+  session?: string,
+  signal?: AbortSignal,
+): Promise<GitDiffResponse> {
+  const q = new URLSearchParams();
+  if (opts.path) q.set("path", opts.path);
+  if (opts.staged) q.set("staged", "1");
+  const qs = q.toString();
+  return req<GitDiffResponse>(
+    withSession(
+      `/api/pane/${encodeURIComponent(paneId)}/git/diff${qs ? `?${qs}` : ""}`,
+      session,
+    ),
+    { signal, headers: { "x-collie-seen": "1" } },
+  );
+}
+
 export function sendReply(
   paneId: string,
   text: string,

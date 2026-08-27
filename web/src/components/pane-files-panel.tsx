@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, File, Folder, Loader2 } from "lucide-react";
 
 import { fetchFsFile, fetchFsTree, type FsTreeEntry } from "@/lib/api";
+import { useVisibleInterval } from "@/hooks/use-visible-interval";
 import { setStatus } from "@/lib/status";
 
 interface PaneFilesPanelProps {
@@ -18,34 +19,66 @@ export function PaneFilesPanel({ paneId, session }: PaneFilesPanelProps) {
   const [fileText, setFileText] = useState<string | null>(null);
   const [fileMeta, setFileMeta] = useState<string | null>(null);
 
-  const loadTree = useCallback(
-    async (p: string) => {
-      setLoading(true);
-      setFilePath(null);
-      setFileText(null);
-      setFileMeta(null);
+  const pathRef = useRef(path);
+  const filePathRef = useRef(filePath);
+  pathRef.current = path;
+  filePathRef.current = filePath;
+
+  const refresh = useCallback(
+    async (opts: { initial?: boolean; treePath?: string } = {}) => {
+      const initial = opts.initial === true;
+      const treePath = opts.treePath ?? pathRef.current;
+      if (initial || opts.treePath !== undefined) {
+        setLoading(true);
+        setFilePath(null);
+        setFileText(null);
+        setFileMeta(null);
+      }
       try {
-        const res = await fetchFsTree(paneId, p, session);
+        const res = await fetchFsTree(paneId, treePath, session);
         setPath(res.path);
         setEntries(res.entries);
         setTruncated(res.truncated);
+
+        const open = filePathRef.current;
+        if (open && !initial && opts.treePath === undefined) {
+          try {
+            const f = await fetchFsFile(paneId, open, session);
+            setFilePath(f.path);
+            if (f.binary) {
+              setFileText(null);
+              setFileMeta(`Binary file · ${f.size} bytes`);
+            } else {
+              setFileText(f.text ?? "");
+              setFileMeta(`${f.size} bytes${f.truncated ? " · truncated" : ""}`);
+            }
+          } catch {
+            // Leave the last good file up; the next poll retries.
+          }
+        }
       } catch {
-        setStatus("Couldn't list files", "error");
-        setEntries([]);
+        if (initial || opts.treePath !== undefined) {
+          setStatus("Couldn't list files", "error");
+          setEntries([]);
+        }
       } finally {
-        setLoading(false);
+        if (initial || opts.treePath !== undefined) setLoading(false);
       }
     },
     [paneId, session],
   );
 
   useEffect(() => {
-    void loadTree("");
-  }, [loadTree]);
+    void refresh({ initial: true, treePath: "" });
+  }, [refresh]);
+
+  useVisibleInterval(() => {
+    void refresh();
+  });
 
   const openEntry = async (e: FsTreeEntry) => {
     if (e.kind === "dir") {
-      void loadTree(e.path);
+      void refresh({ treePath: e.path });
       return;
     }
     if (e.kind !== "file") return;
@@ -58,9 +91,7 @@ export function PaneFilesPanel({ paneId, session }: PaneFilesPanelProps) {
         setFileMeta(`Binary file · ${res.size} bytes`);
       } else {
         setFileText(res.text ?? "");
-        setFileMeta(
-          `${res.size} bytes${res.truncated ? " · truncated" : ""}`,
-        );
+        setFileMeta(`${res.size} bytes${res.truncated ? " · truncated" : ""}`);
       }
     } catch {
       setStatus("Couldn't open file", "error");
@@ -73,7 +104,7 @@ export function PaneFilesPanel({ paneId, session }: PaneFilesPanelProps) {
     if (!path) return;
     const parts = path.split("/").filter(Boolean);
     parts.pop();
-    void loadTree(parts.join("/"));
+    void refresh({ treePath: parts.join("/") });
   };
 
   return (

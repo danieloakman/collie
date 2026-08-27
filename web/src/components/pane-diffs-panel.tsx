@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { fetchGitDiff, fetchGitStatus, type GitStatusEntry } from "@/lib/api";
+import { useVisibleInterval } from "@/hooks/use-visible-interval";
 import { setStatus } from "@/lib/status";
 
 interface PaneDiffsPanelProps {
@@ -14,41 +15,81 @@ export function PaneDiffsPanel({ paneId, session }: PaneDiffsPanelProps) {
   const [entries, setEntries] = useState<GitStatusEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [diffPath, setDiffPath] = useState<string | null>(null);
+  const [diffStaged, setDiffStaged] = useState(false);
   const [diffText, setDiffText] = useState<string>("");
   const [diffLoading, setDiffLoading] = useState(false);
 
-  const loadStatus = useCallback(async () => {
-    setLoading(true);
-    setDiffPath(null);
-    try {
-      const res = await fetchGitStatus(paneId, session);
-      setBranch(res.branch);
-      setEntries(res.entries);
-    } catch {
-      setStatus("Couldn't read git status", "error");
-      setEntries([]);
-      setBranch(undefined);
-    } finally {
-      setLoading(false);
-    }
-  }, [paneId, session]);
+  // Live reads for quiet polls — opening a file mid-flight must not lose the path a status
+  // refresh is about to re-diff, and a poll must not wipe an open view.
+  const diffPathRef = useRef(diffPath);
+  const diffStagedRef = useRef(diffStaged);
+  diffPathRef.current = diffPath;
+  diffStagedRef.current = diffStaged;
+
+  const refresh = useCallback(
+    async (opts: { initial?: boolean } = {}) => {
+      const initial = opts.initial === true;
+      if (initial) {
+        setLoading(true);
+        setDiffPath(null);
+        setDiffText("");
+      }
+      try {
+        const res = await fetchGitStatus(paneId, session);
+        setBranch(res.branch);
+        setEntries(res.entries);
+
+        const path = diffPathRef.current;
+        if (path && !initial) {
+          try {
+            const d = await fetchGitDiff(
+              paneId,
+              { path, staged: diffStagedRef.current },
+              session,
+            );
+            let text = d.text || "(no diff)";
+            if (d.truncated) text += "\n\n… truncated";
+            setDiffText(text);
+          } catch {
+            // Leave the last good diff up; the next poll retries.
+          }
+        }
+      } catch {
+        if (initial) {
+          setStatus("Couldn't read git status", "error");
+          setEntries([]);
+          setBranch(undefined);
+        }
+      } finally {
+        if (initial) setLoading(false);
+      }
+    },
+    [paneId, session],
+  );
 
   useEffect(() => {
-    void loadStatus();
-  }, [loadStatus]);
+    void refresh({ initial: true });
+  }, [refresh]);
+
+  useVisibleInterval(() => {
+    void refresh();
+  });
 
   const openDiff = async (path: string) => {
     setDiffLoading(true);
     setDiffPath(path);
     try {
       const res = await fetchGitDiff(paneId, { path }, session);
-      setDiffText(res.text || "(no unstaged diff — try staged changes on desktop)");
-      if (res.truncated) setDiffText((t) => t + "\n\n… truncated");
+      let text = res.text || "(no unstaged diff — try staged changes on desktop)";
+      if (res.truncated) text += "\n\n… truncated";
+      setDiffText(text);
+      setDiffStaged(false);
     } catch {
       // Untracked / pure staged: try staged diff.
       try {
         const res = await fetchGitDiff(paneId, { path, staged: true }, session);
         setDiffText(res.text || "(no diff)");
+        setDiffStaged(true);
       } catch {
         setStatus("Couldn't read diff", "error");
         setDiffText("");

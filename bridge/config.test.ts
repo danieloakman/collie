@@ -20,6 +20,7 @@ const KEYS = [
   "COLLIE_PI_ROOT",
   "COLLIE_OPENCODE_ROOT",
   "COLLIE_GROK_ROOT",
+  "COLLIE_CURSOR_ROOT",
   // Each harness's own home var participates in journal-root resolution, so the suite must own them
   // too — otherwise a developer with CODEX_HOME set gets different results than CI.
   "CODEX_HOME",
@@ -78,6 +79,7 @@ describe("loadConfig", () => {
     // OpenCode keeps ONE sqlite database at the top of its XDG data dir — no per-session files.
     expect(cfg.journalRoots.opencode).toEqual([join(homedir(), ".local", "share", "opencode")]);
     expect(cfg.journalRoots.grok).toEqual([join(homedir(), ".grok", "sessions")]);
+    expect(cfg.journalRoots.cursor).toEqual([join(homedir(), ".cursor", "projects")]);
     expect(cfg.submitKeys).toEqual(["Enter"]);
     expect(cfg.trustedUser).toBe("");
     expect(cfg.allowedOrigins).toEqual([]);
@@ -178,11 +180,13 @@ describe("loadConfig", () => {
     process.env.COLLIE_PI_ROOT = "/c/sessions,/d/sessions";
     process.env.COLLIE_OPENCODE_ROOT = "/e/opencode,/f/opencode";
     process.env.COLLIE_GROK_ROOT = "/g/sessions,/h/sessions";
+    process.env.COLLIE_CURSOR_ROOT = "/i/projects,/j/projects";
     const cfg = loadConfig();
     expect(cfg.journalRoots.codex).toEqual(["/a/sessions", "/b/sessions"]);
     expect(cfg.journalRoots.pi).toEqual(["/c/sessions", "/d/sessions"]);
     expect(cfg.journalRoots.opencode).toEqual(["/e/opencode", "/f/opencode"]);
     expect(cfg.journalRoots.grok).toEqual(["/g/sessions", "/h/sessions"]);
+    expect(cfg.journalRoots.cursor).toEqual(["/i/projects", "/j/projects"]);
   });
 
   test("each harness's own home var relocates its journal root", () => {

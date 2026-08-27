@@ -12,6 +12,7 @@
 
 import { claudeJournal } from "./claude.ts";
 import { codexJournal } from "./codex.ts";
+import { cursorJournal } from "./cursor.ts";
 import { grokJournal } from "./grok.ts";
 import { opencodeJournal } from "./opencode.ts";
 import { piJournal } from "./pi.ts";
@@ -37,6 +38,8 @@ export interface JournalRoots {
   opencode: readonly string[];
   /** Grok Build's `$GROK_HOME/sessions`. */
   grok: readonly string[];
+  /** Cursor Agent CLI's `~/.cursor/projects` (each project holds `agent-transcripts/`). */
+  cursor: readonly string[];
 }
 
 /**
@@ -52,6 +55,7 @@ export function buildJournalRegistry(roots: JournalRoots): Record<string, Journa
     piJournal(roots.pi),
     opencodeJournal(roots.opencode),
     grokJournal(roots.grok),
+    cursorJournal(roots.cursor),
   ];
   return Object.fromEntries(adapters.map((a) => [a.agent, a]));
 }

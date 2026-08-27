@@ -6,13 +6,21 @@ import { adapterFor, buildJournalRegistry, journalAgents } from "./registry.ts";
 // two properties that keep it from rotting: keys come from the adapters themselves, and a hostile
 // agent name can't resolve to something that isn't an adapter.
 
-const roots = { claude: ["/c"], codex: ["/x"], pi: ["/p"], opencode: ["/o"], grok: ["/g"] };
+const roots = {
+  claude: ["/c"],
+  codex: ["/x"],
+  pi: ["/p"],
+  opencode: ["/o"],
+  grok: ["/g"],
+  cursor: ["/u"],
+};
 
 describe("buildJournalRegistry", () => {
-  test("serves the five verified harnesses", () => {
+  test("serves the verified harnesses", () => {
     expect(journalAgents(buildJournalRegistry(roots))).toEqual([
       "claude",
       "codex",
+      "cursor",
       "grok",
       "opencode",
       "pi",
@@ -28,7 +36,7 @@ describe("buildJournalRegistry", () => {
 describe("adapterFor", () => {
   const registry = buildJournalRegistry(roots);
 
-  test.each(["claude", "codex", "pi", "opencode", "grok"])("resolves %s", (agent) => {
+  test.each(["claude", "codex", "pi", "opencode", "grok", "cursor"])("resolves %s", (agent) => {
     expect(adapterFor(registry, agent)?.agent).toBe(agent);
   });
 

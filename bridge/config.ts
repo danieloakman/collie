@@ -278,6 +278,10 @@ export function loadConfig(): Config {
         "COLLIE_GROK_ROOT",
         join(process.env.GROK_HOME ?? join(homedir(), ".grok"), "sessions"),
       ),
+      cursor: envRoots(
+        "COLLIE_CURSOR_ROOT",
+        join(process.env.CURSOR_PROJECTS_DIR ?? join(homedir(), ".cursor", "projects")),
+      ),
     },
     submitKeys: submitKeys.length ? submitKeys : ["Enter"],
     commandsFile: join(configDir, "commands.toml"),

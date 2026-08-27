@@ -1,4 +1,5 @@
 import { meaningfulTabLabel, meaningfulTerminalTitle } from "./activity.ts";
+import { cursorLookupRef } from "./journal/cursor.ts";
 import type { HerdrClient } from "./herdr-client.ts";
 import {
   type AgentStatus,
@@ -260,7 +261,17 @@ export class StateEngine {
             p.agent_session.agent === "" ||
             p.agent_session.agent === agent)
             ? { agentSession: { kind: p.agent_session.kind, value: p.agent_session.value } }
-            : {}),
+            : agent === "cursor"
+              ? {
+                  agentSession: {
+                    kind: "id" as const,
+                    value: cursorLookupRef(
+                      p.cwd,
+                      p.terminal_title_stripped ?? p.terminal_title ?? "",
+                    ),
+                  },
+                }
+              : {}),
           // Scrollback depth + viewport = what a `recent` read can yield. Omitted when the server
           // predates `scroll`, so an older Herdr simply reads as "unknown" rather than "zero".
           ...(p.scroll

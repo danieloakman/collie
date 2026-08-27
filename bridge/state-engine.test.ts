@@ -19,6 +19,8 @@ interface FakePane {
   label?: string | null;
   revision: number;
   agent_session?: { source?: string; agent?: string; kind?: string; value?: string } | null;
+  terminal_title?: string | null;
+  terminal_title_stripped?: string | null;
   scroll?: {
     offset_from_bottom: number;
     max_offset_from_bottom: number;
@@ -588,6 +590,19 @@ describe("StateEngine — pane capability fields", () => {
     herdr.panes = [p];
     await poll();
     expect(engine.current().agents[0]!.agentSession).toBeUndefined();
+  });
+
+  test("cursor panes without a Herdr session get a cwd/title lookup ref", async () => {
+    const { herdr, engine, poll } = makeEngine();
+    const p = pane("w1:p1", "w1", "idle", "cursor");
+    p.cwd = "/home/dano/Documents/obsidian-vault";
+    p.terminal_title = "Effort Date Planner (forked) - ✅ Ready";
+    herdr.panes = [p];
+    await poll();
+    expect(engine.current().agents[0]!.agentSession).toEqual({
+      kind: "id",
+      value: "cu:home-dano-Documents-obsidian-vault:Effort Date Planner (forked)",
+    });
   });
 
   test("readableLines is scrollback depth PLUS the viewport (what a recent read can return)", async () => {

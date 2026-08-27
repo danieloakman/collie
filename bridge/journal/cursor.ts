@@ -6,6 +6,10 @@
 //   {"role":"user"|"assistant","message":{"content":[{type:"text"|"tool_use",…}]}}
 //   {"type":"turn_ended",…}                                                     ← bookkeeping
 //
+// Tool RESULTS never appear in these logs — only `tool_use` (name + input). Do not stub an empty
+// `result` on the part: the Chat accordion treats any `result` as expandable, and an empty body is
+// exactly the "chevron opens, nothing inside" bug.
+//
 // HOW HERDR NAMES THE SESSION. The cursor integration (herdr-agent-state.sh) *tries* to
 // `pane.report_agent_session` on sessionStart, but cursor-agent often never reports an id — live
 // panes have `agent:"cursor"` and no `agent_session` at all. Without a ref Collie used to answer
@@ -164,7 +168,6 @@ export function parseCursorTranscript(text: string): TranscriptEntry[] {
             kind: "tool",
             name: block.name,
             summary: summarizeToolInput(block.input),
-            result: { text: "", truncated: false },
           });
         }
       }

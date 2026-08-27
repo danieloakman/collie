@@ -95,6 +95,8 @@ describe("parseCursorTranscript", () => {
     expect(entries[1]!.role).toBe("assistant");
     expect(entries[1]!.parts.map((p) => p.kind)).toEqual(["text", "tool"]);
     expect(entries[1]!.parts[1]).toMatchObject({ kind: "tool", name: "Read", summary: "/vault/note.md" });
+    // Cursor logs never carry tool output — no empty `result` stub (that made Chat expandable-but-blank).
+    expect(entries[1]!.parts[1]).not.toHaveProperty("result");
   });
 
   test("every turn gets a stable cursor", () => {

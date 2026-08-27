@@ -61,14 +61,17 @@ function ToolPart({ part, query }: { part: Extract<TranscriptPart, { kind: "tool
   const [open, setOpen] = useState(false);
   const result = part.result;
   const isError = result?.isError === true;
+  // An empty `result.text` is not expandable — same as no result. Adapters must not stub blanks;
+  // this also guards a leftover stub so Chat never shows a chevron that opens onto nothing.
+  const expandable = result != null && (result.text !== "" || isError);
 
   return (
     <div className="rounded-md border bg-muted/40">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        disabled={!result}
-        aria-expanded={result ? open : undefined}
+        disabled={!expandable}
+        aria-expanded={expandable ? open : undefined}
         className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left disabled:opacity-100"
       >
         {isError ? (
@@ -83,13 +86,13 @@ function ToolPart({ part, query }: { part: Extract<TranscriptPart, { kind: "tool
             <Highlight text={part.summary} query={query} />
           </span>
         )}
-        {result && (
+        {expandable && (
           <ChevronRight
             className={`size-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
           />
         )}
       </button>
-      {open && result && (
+      {open && expandable && result && (
         <pre className="overflow-x-auto border-t px-2 py-1.5 font-mono text-[11px] leading-snug whitespace-pre-wrap">
           {result.text}
           {result.truncated && <span className="text-muted-foreground">{"\n… output truncated"}</span>}

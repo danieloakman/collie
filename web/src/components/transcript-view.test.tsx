@@ -80,6 +80,20 @@ describe("TranscriptView", () => {
     expect(screen.getByRole("button")).toBeDisabled();
   });
 
+  it("an empty result stub isn't expandable either (chevron-with-blank-body bug)", () => {
+    render(
+      <TranscriptView
+        entries={[
+          turn({
+            role: "assistant",
+            parts: [{ kind: "tool", name: "Grep", summary: "foo", result: { text: "", truncated: false } }],
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button")).toBeDisabled();
+  });
+
   it("flags truncated output rather than silently dropping the tail", async () => {
     render(
       <TranscriptView

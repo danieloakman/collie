@@ -29,7 +29,10 @@ COLLIE_HOST=127.0.0.1                       # keep loopback (default)
 COLLIE_DEVICE_HEADER=X-Device-Id            # the header your proxy injects
 COLLIE_DEVICE_ALLOWLIST=my-phone,my-laptop  # ids allowed to drive agents; others → read-only
 # COLLIE_ALLOWED_ORIGINS=https://collie.example.com   # only if the proxy does NOT forward the public Host
+# COLLIE_PUBLIC_HOSTS=collie.example.com    # REQUIRED unless the proxy forwards a Host Collie already knows
+# COLLIE_ALLOW_ANY_HOST=1                   # opt out of Host validation entirely (re-opens DNS rebinding)
 # COLLIE_TRUSTED_USER still composes on top if your ingress also injects Tailscale-User-Login
+# COLLIE_TRUSTED_USER_OPTIONAL=1            # accept a request carrying no Tailscale-User-Login at all
 ```
 
 Your fronting proxy **must**:
@@ -138,7 +141,9 @@ Required env (`.env`):
 
 ```bash
 COLLIE_SKIP_SERVE=1                                 # proxy is ingress; never run tailscale serve
-COLLIE_PUBLIC_HOSTS=collie.example.com              # Host allowlist — blocks DNS rebinding
+COLLIE_PUBLIC_HOSTS=collie.example.com              # REQUIRED — Host validation fails closed, and
+                                                    # collie-ctl.sh discovers no tailnet name here
+# COLLIE_ALLOW_ANY_HOST=1                           # opt out of Host validation (re-opens DNS rebinding)
 COLLIE_ALLOWED_ORIGINS=https://collie.example.com   # exact public origin for the same-origin gate
 COLLIE_DEVICE_HEADER=X-Device-Id                    # the header your proxy injects…
 COLLIE_DEVICE_ALLOWLIST=my-phone,my-laptop          # …and the ids allowed to drive; others → read-only
@@ -185,6 +190,15 @@ too, so Cloudflare Access works untouched.) Collie's refusal banner links to `/a
 so a signed-out phone has a tappable way back in; a `?rd=`/`?next=` return-to parameter is fine, and
 if your flow lives somewhere you can't move, redirect `/auth/` to it. When the bridge answers there
 itself, nothing claimed the path — that placeholder is your signal that the proxy rule is missing.
+
+**Forward-auth proxies that turn refusals into redirects are supported, but Collie does not follow
+the login flow for you.** API requests are made with redirects disabled; if the front door still
+answers a lapsed session with a 3xx, Collie treats that response as a 401 so the existing **Sign in**
+link appears instead of a misleading connection error. `/auth/` must therefore remain a real,
+operator-owned sign-in entry. For Authentik, redirect that entry into its standard
+`/outpost.goauthentik.io/start` flow (with the appropriate `rd` return URL); the fixed
+`/outpost.goauthentik.io/` start/callback namespace is also passed straight to the network by the
+service worker so an installed PWA cannot replace the auth flow with its cached app shell.
 
 > **Devices locked out before 0.18.0 can't pick this up.** They can't fetch the new service worker,
 > so the `/auth/` link never appears — clear that site's data once (browser settings → the site →
@@ -286,7 +300,10 @@ COLLIE_SERVE_MODE=http                                # proxy terminates TLS; th
 COLLIE_HOST=127.0.0.1                                 # keep loopback (default)
 COLLIE_DEVICE_HEADER=X-Tailnet-Device                 # header your forward-auth injects — REQUIRED here
 COLLIE_DEVICE_ALLOWLIST=my-phone,my-laptop            # ids allowed to drive; others + header-less → read-only
-COLLIE_PUBLIC_HOSTS=host:8787,host.your-tailnet.ts.net:8787   # the Host the proxy forwards
+COLLIE_PUBLIC_HOSTS=host:8787,host.your-tailnet.ts.net:8787   # REQUIRED — the Host the proxy forwards.
+                                                      # COLLIE_TAILSCALE_HOSTS carries the bare tailnet
+                                                      # name collie-ctl.sh found; a rewritten Host is
+                                                      # yours to list. COLLIE_ALLOW_ANY_HOST=1 opts out.
 COLLIE_ALLOWED_ORIGINS=https://collie.example.com     # the public origin the browser actually uses
 ```
 
@@ -344,7 +361,8 @@ other tunnel you own the ingress and Collie stays out of the way:
 
 ```bash
 COLLIE_SKIP_SERVE=1                                 # never run tailscale serve
-COLLIE_PUBLIC_HOSTS=collie.example.com              # exact public host — blocks DNS rebinding
+COLLIE_PUBLIC_HOSTS=collie.example.com              # REQUIRED — exact public host; Host validation
+                                                    # fails closed and finds no tailnet name here
 COLLIE_ALLOWED_ORIGINS=https://collie.example.com   # exact public origin for the same-origin gate
 ```
 

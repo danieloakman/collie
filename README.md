@@ -42,7 +42,8 @@ public access, Collie isn't built for it. Read the
 - [Install](#install)
 - [First run — what you'll see](#first-run--what-youll-see)
 - [Configure](#configure) · [Your own slash commands](#your-own-slash-commands) ·
-  [Multi-session](#multi-session)
+  [Your own key presets](#your-own-key-presets) ·
+  [Your own quick replies](#your-own-quick-replies) · [Multi-session](#multi-session)
 - [Dark mode / light mode](#dark-mode--light-mode)
 - [Commands](#commands)
 - [Manage & update](#manage--update)
@@ -101,12 +102,14 @@ The sharp edges:
 - **Every write is appended to `<state-dir>/audit.log`** — replies, keys, uploads, pane and tab
   create/close. A trail is not a gate (details:
   [ARCHITECTURE.md §6](./ARCHITECTURE.md#6-security-model)).
-- **The defenses:** loopback bind only, never `0.0.0.0`; exactly one hardened front door —
+- **The defenses:** loopback bind only, never `0.0.0.0` (the bridge refuses to start on a wide bind
+  unless you set `COLLIE_ALLOW_NON_LOOPBACK_BIND=1`); exactly one hardened front door —
   `tailscale serve` or a conforming reverse proxy, never `funnel` and never a bare port; a
   same-origin gate and a strict CSP, with pane output rendered as React text nodes rather than
-  `innerHTML`. Two settings are yours to switch on, and you should: `COLLIE_TRUSTED_USER` rejects any
-  tailnet login but yours, and `COLLIE_PUBLIC_HOSTS` blocks DNS rebinding (effectively mandatory
-  under `COLLIE_SERVE_MODE=http`). Authorising individual *devices* needs a proxy in front — see
+  `innerHTML`. Host-header validation is on by default and fails closed (`COLLIE_ALLOW_ANY_HOST=1`
+  turns it off). `COLLIE_TRUSTED_USER` rejects a mismatching *or missing* `Tailscale-User-Login`
+  (tagged nodes get no header; `COLLIE_TRUSTED_USER_OPTIONAL=1` restores the old missing-header
+  pass). Authorising individual *devices* needs a proxy in front — see
   [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 > 🚫 **Never `tailscale funnel` this** — funnel exposes it to the public internet; `serve` keeps it
@@ -239,14 +242,13 @@ $ scripts/collie-ctl.sh logs        # journal timestamps trimmed here
 [push] disabled (no VAPID keys configured)
 [bridge] listening on http://127.0.0.1:8787  (poll 1500ms)
 [bridge] WARNING: COLLIE_TRUSTED_USER is empty — any tailnet device/user that reaches the bridge gets full write access. Set it to your tailnet login (see README → Variant A).
-[bridge] WARNING: COLLIE_PUBLIC_HOSTS is empty — Host-header validation is OFF (DNS rebinding not blocked). Set it to your MagicDNS name, especially under COLLIE_SERVE_MODE=http.
 ```
 
-**Both WARNINGs are expected on a fresh install** — that's the bridge telling you it's running
-open-by-default on your tailnet. [Configure](#configure) closes both. (The loopback URL in the log
-is also correct: the bridge itself only ever binds `127.0.0.1` — `tailscale serve` is what makes it
-reachable.) `[push] disabled` is expected too: notifications are opt-in, and
-[Web Push](#web-push-optional) is three commands.
+**That WARNING is expected on a fresh install** — identity is still open. Host-header validation is
+on by default (`collie-ctl.sh` injects the tailnet name). [Configure](#configure) sets the identity.
+(The loopback URL in the log is also correct: the bridge itself only ever binds `127.0.0.1` —
+`tailscale serve` is what makes it reachable.) `[push] disabled` is expected too: notifications are
+opt-in, and [Web Push](#web-push-optional) is three commands.
 
 On the phone: your agents are listed, and the footer build stamp (`v0.9.0 · debcff9 · …`) matches
 `scripts/collie-ctl.sh version`. If the page loads but stays empty, that's the same-origin gate —
@@ -255,12 +257,11 @@ see [Troubleshooting](#troubleshooting).
 ## Configure
 
 Out of the box Collie runs **open single-user**: anyone on your tailnet who can reach the URL has
-full control — that's exactly what the two startup WARNINGs are about. Close both in one sitting:
+full control — that's the TRUSTED_USER warning. Close it:
 
 ```bash
 # in your .env
 COLLIE_TRUSTED_USER=you@example.com           # your tailnet login — the bridge rejects anyone else
-COLLIE_PUBLIC_HOSTS=myhost.tail1234.ts.net    # exact host(s) you serve on — blocks DNS rebinding
 ```
 
 Config is a `.env` in the plugin's config dir — find it with
@@ -336,6 +337,28 @@ is fixed and not configurable. Chords are herdr's spelling: `ctrl+c` (never `C-c
 `ctrl+F7`; `PageUp`/`Home`/`End`/`Delete` are not accepted. No restart — edits are live. Verify:
 open a pane, tap **Keys → Presets**, your buttons are there. Rejected row?
 `journalctl --user -u collie -n 20` names it and why.
+
+### Your own quick replies
+
+The Quick dock's one-tap phrases are yours to replace, in `quick-replies.toml` next to the other two:
+
+```bash
+cp quick-replies.toml.example "$(herdr plugin config-dir herdr.collie)/quick-replies.toml"
+```
+
+```toml
+[[replies]]
+scope = "claude"             # optional; omit for every pane
+title = "confirm"
+items = ["yes", "no"]        # sent verbatim, one per button
+```
+
+A pane your rows match shows only your groups, in place of the shipped ones
+([ADR 0018](./.adr/0018-operator-command-rows-replace-the-catalog.md)). The shipped phrases are
+English (`yes`, `commit and push`); this is the way to work in another language, or to give a
+harness that wants `approve` the word it wants. `scope = "shell"` reaches a plain shell pane, which
+otherwise gets only `y`/`n`. No restart — edits are live. Verify: open a pane, tap **Quick**, your
+groups are there. Rejected row? `journalctl --user -u collie -n 20` names it and why.
 
 ### Multi-session
 

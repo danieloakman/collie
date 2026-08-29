@@ -104,6 +104,28 @@ describe("parseCursorTranscript", () => {
     const b = parseCursorTranscript(sample);
     expect(a.map((e) => e.uuid)).toEqual(b.map((e) => e.uuid));
   });
+
+  test("drops provider-redacted thinking placeholders", () => {
+    const entries = parseCursorTranscript(
+      [
+        JSON.stringify({
+          role: "assistant",
+          message: {
+            content: [
+              { type: "text", text: "[REDACTED]" },
+              { type: "tool_use", name: "Read", input: { path: "/a.md" } },
+            ],
+          },
+        }),
+        JSON.stringify({
+          role: "assistant",
+          message: { content: [{ type: "text", text: "  [REDACTED]  " }] },
+        }),
+      ].join("\n"),
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.parts.map((p) => p.kind)).toEqual(["tool"]);
+  });
 });
 
 describe("CursorTranscriptSource", () => {

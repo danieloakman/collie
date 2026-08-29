@@ -20,6 +20,11 @@ export function stripAnsi(text: string): string {
   return text.replace(ANSI_RE, "");
 }
 
+/** Model-provider placeholder for withheld extended-thinking content (Cursor, Anthropic, …). */
+export function isRedactedPlaceholder(text: string): boolean {
+  return text.trim() === "[REDACTED]";
+}
+
 /** Cap a string, flagging the cut so the view can say so rather than silently lying. */
 export function clamp(text: string, max: number): { text: string; truncated?: boolean } {
   if (text.length <= max) return { text };

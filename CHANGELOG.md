@@ -6,6 +6,12 @@ All notable changes to Collie are recorded here. The format follows
 `version` in `herdr-plugin.toml`, `package.json`, and `web/package.json` (enforced by
 `scripts/check-version.sh`). See [`CLAUDE.md`](./CLAUDE.md) → *Versioning* for the bump policy.
 
+## [0.36.2] - 2026-08-30
+
+### Fixed
+
+- **Chat strips trailing `[REDACTED]` lines** — Cursor appends withheld thinking on its own line after status prose, not as a standalone block
+
 ## [0.36.1] - 2026-08-30
 
 ### Fixed

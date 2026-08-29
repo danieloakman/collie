@@ -121,10 +121,41 @@ describe("parseCursorTranscript", () => {
           role: "assistant",
           message: { content: [{ type: "text", text: "  [REDACTED]  " }] },
         }),
+        JSON.stringify({
+          role: "assistant",
+          message: {
+            content: [
+              {
+                type: "text",
+                text: "Checking August effort dates and vault notes.\n\n[REDACTED]",
+              },
+              { type: "tool_use", name: "Grep", input: { pattern: "bowling" } },
+            ],
+          },
+        }),
+        JSON.stringify({
+          role: "assistant",
+          message: {
+            content: [
+              {
+                type: "text",
+                text: 'I keep seeing "[REDACTED]" in the output.\n\n[REDACTED]',
+              },
+            ],
+          },
+        }),
       ].join("\n"),
     );
-    expect(entries).toHaveLength(1);
+    expect(entries).toHaveLength(3);
     expect(entries[0]!.parts.map((p) => p.kind)).toEqual(["tool"]);
+    expect(entries[1]!.parts[0]).toMatchObject({
+      kind: "text",
+      text: "Checking August effort dates and vault notes.",
+    });
+    expect(entries[2]!.parts[0]).toMatchObject({
+      kind: "text",
+      text: 'I keep seeing "[REDACTED]" in the output.',
+    });
   });
 });
 

@@ -25,6 +25,19 @@ export function isRedactedPlaceholder(text: string): boolean {
   return text.trim() === "[REDACTED]";
 }
 
+/**
+ * Drop `[REDACTED]` lines Cursor appends after real status prose in the same text block.
+ * Whole-block placeholders and trailing `\n\n[REDACTED]` both go; prose that *mentions* the token
+ * stays.
+ */
+export function stripRedactedPlaceholders(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !isRedactedPlaceholder(line))
+    .join("\n")
+    .trim();
+}
+
 /** Cap a string, flagging the cut so the view can say so rather than silently lying. */
 export function clamp(text: string, max: number): { text: string; truncated?: boolean } {
   if (text.length <= max) return { text };

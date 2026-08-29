@@ -27,9 +27,9 @@ import { join } from "node:path";
 import { containedRealpath, exists, head, loadTail, rootList, statFile } from "./files.ts";
 import {
   clamp,
-  isRedactedPlaceholder,
   MAX_TEXT_CHARS,
   stripAnsi,
+  stripRedactedPlaceholders,
   summarizeToolInput,
 } from "./text.ts";
 import type {
@@ -168,8 +168,8 @@ export function parseCursorTranscript(text: string): TranscriptEntry[] {
         if (!b || typeof b !== "object") continue;
         const block = b as { type?: unknown; text?: unknown; name?: unknown; input?: unknown };
         if (block.type === "text" && typeof block.text === "string" && block.text.trim() !== "") {
-          const prose = stripAnsi(block.text);
-          if (isRedactedPlaceholder(prose)) continue;
+          const prose = stripRedactedPlaceholders(stripAnsi(block.text));
+          if (prose === "") continue;
           parts.push({ kind: "text", ...clamp(prose, MAX_TEXT_CHARS) });
         } else if (block.type === "tool_use" && typeof block.name === "string") {
           parts.push({
@@ -180,9 +180,8 @@ export function parseCursorTranscript(text: string): TranscriptEntry[] {
         }
       }
     } else {
-      const raw = stripAnsi(textBlocks(content));
-      if (raw.trim() !== "" && !isRedactedPlaceholder(raw))
-        parts.push({ kind: "text", ...clamp(raw, MAX_TEXT_CHARS) });
+      const raw = stripRedactedPlaceholders(stripAnsi(textBlocks(content)));
+      if (raw !== "") parts.push({ kind: "text", ...clamp(raw, MAX_TEXT_CHARS) });
     }
 
     if (parts.length === 0) continue;

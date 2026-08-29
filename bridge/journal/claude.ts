@@ -29,10 +29,10 @@ import { dirname, join } from "node:path";
 import { containedRealpath, exists, head, loadTail, rootList, statFile } from "./files.ts";
 import {
   clamp,
-  isRedactedPlaceholder,
   MAX_RESULT_CHARS,
   MAX_TEXT_CHARS,
   stripAnsi,
+  stripRedactedPlaceholders,
   summarizeToolInput,
 } from "./text.ts";
 import type {
@@ -179,13 +179,11 @@ export function parseClaudeTranscript(
         if (block === null || typeof block !== "object") continue;
         const b = block as Record<string, unknown>;
         if (b.type === "text" && typeof b.text === "string") {
-          const prose = stripAnsi(b.text);
-          if (prose.trim() !== "" && !isRedactedPlaceholder(prose))
-            parts.push({ kind: "text", ...clamp(prose, MAX_TEXT_CHARS) });
+          const prose = stripRedactedPlaceholders(stripAnsi(b.text));
+          if (prose !== "") parts.push({ kind: "text", ...clamp(prose, MAX_TEXT_CHARS) });
         } else if (b.type === "thinking" && typeof b.thinking === "string") {
-          const thinking = stripAnsi(b.thinking);
-          if (thinking.trim() !== "" && !isRedactedPlaceholder(thinking))
-            parts.push({ kind: "thinking", ...clamp(thinking, MAX_TEXT_CHARS) });
+          const thinking = stripRedactedPlaceholders(stripAnsi(b.thinking));
+          if (thinking !== "") parts.push({ kind: "thinking", ...clamp(thinking, MAX_TEXT_CHARS) });
         } else if (b.type === "tool_use") {
           const part: Extract<TranscriptPart, { kind: "tool" }> = {
             kind: "tool",

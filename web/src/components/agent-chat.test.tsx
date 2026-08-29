@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { createMemoryRouter, RouterProvider, useParams } from "react-router";
@@ -21,6 +21,7 @@ import { clearStatus } from "@/lib/status";
 import { submitPromptOption } from "@/lib/prompt-action";
 import { submitWizardKeys } from "@/lib/wizard-action";
 import { fixtureAgents } from "@/test/handlers";
+import { __resetTabPaneMemory } from "@/lib/tab-pane-memory";
 import { AgentChat } from "./agent-chat";
 
 // The detail view's core job: type a reply and submit it to the bridge. This drives the whole wired
@@ -31,7 +32,10 @@ beforeAll(() => {
   // jsdom doesn't implement scrollTo; the terminal mirror's auto-scroll calls it.
   if (!Element.prototype.scrollTo) Element.prototype.scrollTo = () => {};
 });
-beforeEach(() => clearStatus());
+beforeEach(() => {
+  clearStatus();
+  __resetTabPaneMemory();
+});
 
 function renderChat(
   overrides: Partial<ComponentProps<typeof AgentChat>> = {},
@@ -523,6 +527,55 @@ describe("AgentChat — feature tabs", () => {
     expect(screen.getByRole("tab", { name: /^live$/i })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: /^files$/i })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /^diffs$/i })).toBeInTheDocument();
+  });
+
+  it("restores each Herdr tab's last pane and feature tab when switching tabs", async () => {
+    const user = userEvent.setup();
+    const tabA = fixtureAgents[0]!;
+    const tabB = {
+      ...fixtureAgents[1]!,
+      workspaceId: "w1",
+      workspaceLabel: tabA.workspaceLabel,
+      tabId: "w1:t2",
+      paneId: "w1:p9",
+    };
+    const tabs = [
+      { tabId: "w1:t1", workspaceId: "w1", number: 1, label: "alpha", focused: false, paneCount: 1 },
+      { tabId: "w1:t2", workspaceId: "w1", number: 2, label: "beta", focused: false, paneCount: 1 },
+    ];
+    const onSelect = vi.fn();
+
+    renderChat(
+      {
+        paneId: tabA.paneId,
+        agent: tabA,
+        agents: [tabA, tabB],
+        shellPanes: [],
+        tabs,
+        onSelect,
+      },
+      { tab: "live" },
+    );
+
+    await user.click(screen.getByRole("button", { name: /beta$/i }));
+    expect(onSelect).toHaveBeenCalledWith("w1:p9", { featureTab: "chat" });
+
+    cleanup();
+    onSelect.mockClear();
+    renderChat(
+      {
+        paneId: tabB.paneId,
+        agent: tabB,
+        agents: [tabA, tabB],
+        shellPanes: [],
+        tabs,
+        onSelect,
+      },
+      { tab: "chat" },
+    );
+
+    await user.click(screen.getByRole("button", { name: /alpha$/i }));
+    expect(onSelect).toHaveBeenCalledWith("w1:p1", { featureTab: "live" });
   });
 });
 

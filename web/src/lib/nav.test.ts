@@ -24,6 +24,13 @@ describe("panePath", () => {
     expect(panePath("w1:p1", "collie-demo")).toBe("/pane/w1%3Ap1?s=collie-demo");
     expect(panePath("abc", "a b")).toBe("/pane/abc?s=a%20b");
   });
+
+  it("carries a non-chat feature tab as ?tab=", () => {
+    expect(panePath("w1:p1", undefined, "live")).toBe("/pane/w1%3Ap1?tab=live");
+    expect(panePath("w1:p1", "collie-demo", "diffs")).toBe(
+      "/pane/w1%3Ap1?s=collie-demo&tab=diffs",
+    );
+  });
 });
 
 describe("homePath", () => {

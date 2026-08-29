@@ -44,6 +44,12 @@ import { shortCwd } from "@/lib/format";
 import { spacePath } from "@/lib/nav";
 import { FEATURE_TAB_PARAM, parseFeatureTab, type FeatureTab } from "@/lib/feature-tab";
 import { SESSION_PARAM } from "@/lib/session";
+import {
+  featureForTab,
+  paneForTab,
+  rememberFeatureForTab,
+  rememberPaneForTab,
+} from "@/lib/tab-pane-memory";
 import { isReadOnly } from "@/lib/types";
 import type { AgentView, BridgeStatus, DeviceAuth, TabView } from "@/lib/types";
 import type {
@@ -79,7 +85,7 @@ interface AgentChatProps {
   error?: boolean;
   stalled?: boolean;
   onBack: () => void;
-  onSelect: (paneId: string) => void;
+  onSelect: (paneId: string, opts?: { featureTab?: FeatureTab }) => void;
 }
 
 // At most one drawer/sheet is open at a time; null = none. (The composer's own Keys/Quick/Agent
@@ -119,6 +125,7 @@ export function AgentChat({
   const featureTab = parseFeatureTab(searchParams.get(FEATURE_TAB_PARAM));
   const setFeatureTab = useCallback(
     (tab: FeatureTab) => {
+      if (agent?.tabId) rememberFeatureForTab(agent.tabId, tab);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -133,7 +140,7 @@ export function AgentChat({
         { replace: true },
       );
     },
-    [setSearchParams],
+    [setSearchParams, agent?.tabId],
   );
   // Poll-truth "is the data on screen not live". The header (AppHeader) reads the same inputs to drive
   // the Collie mark + pill; here we use it to dim the StatusBadge, so the badge stops presenting the
@@ -158,6 +165,11 @@ export function AgentChat({
   const composerRef = useRef<ComposerHandle>(null);
 
   const gone = !agent;
+
+  // Keep per-Herdr-tab memory warm while this pane is open.
+  useEffect(() => {
+    if (agent?.tabId) rememberPaneForTab(agent.tabId, paneId);
+  }, [agent?.tabId, paneId]);
 
   // Swipe up (or just tap) the handle above the composer to bring up the pane switcher. A lowish
   // threshold + a taller hit area (below) make the gesture easy to land with a thumb; tapping is the
@@ -538,16 +550,26 @@ export function AgentChat({
 
   // Switch to another thread from the sidebar or the swipe-up switcher (DetailRoute keys AgentChat
   // by pane, so this remounts fresh — composer resets — same as opening from home).
-  function switchTo(id: string) {
+  function switchTo(id: string, nextFeature?: FeatureTab) {
     closeDrawer();
-    if (id !== paneId) onSelect(id);
+    if (id === paneId) return;
+    onSelect(id, { featureTab: nextFeature ?? featureTab });
   }
 
-  // Jump to another tab in this space by opening one of its panes (the in-pane tab bar).
+  // Jump to another tab in this space — restore that tab's last pane + feature tab (Chat/Live/…).
   function goToTab(tabId: string) {
     if (!agent || tabId === agent.tabId) return;
-    const target = [...agents, ...shellPanes].find((p) => p.tabId === tabId);
-    if (target) switchTo(target.paneId);
+    rememberPaneForTab(agent.tabId, paneId);
+    rememberFeatureForTab(agent.tabId, featureTab);
+
+    const tabPanes = [...agents, ...shellPanes].filter((p) => p.tabId === tabId);
+    const remembered = paneForTab(tabId);
+    const target =
+      (remembered ? tabPanes.find((p) => p.paneId === remembered) : undefined) ??
+      tabPanes.find((p) => p.focused) ??
+      tabPanes[0];
+    if (!target) return;
+    switchTo(target.paneId, featureForTab(tabId) ?? "chat");
   }
 
   // Open a space from the nav hub — go to its detail route (its tabs + panes, incl. shells). A step
@@ -721,6 +743,7 @@ export function AgentChat({
 
         {featureTab === "chat" && (
           <PaneChatPanel
+            key={paneId}
             paneId={paneId}
             session={session}
             agentStatus={agent?.status}

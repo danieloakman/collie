@@ -4,6 +4,7 @@ import { useLoaderData, useLocation, useNavigate, useParams, useRouteLoaderData 
 import { AgentChat } from "@/components/agent-chat";
 import { useLoadingStalled } from "@/hooks/use-loading-stalled";
 import { ROOT_ROUTE_ID, type HomeData, type PaneData } from "@/lib/loaders";
+import { FEATURE_TAB_PARAM, parseFeatureTab } from "@/lib/feature-tab";
 import { homePath, panePath } from "@/lib/nav";
 import { setStatus } from "@/lib/status";
 import type { AgentView } from "@/lib/types";
@@ -76,7 +77,12 @@ export function DetailRoute() {
       error={root.error}
       stalled={stalled}
       onBack={() => navigate(homePath(session))}
-      onSelect={(id) => navigate(panePath(id, session))}
+      onSelect={(id, opts) => {
+        const tab =
+          opts?.featureTab ??
+          parseFeatureTab(new URLSearchParams(location.search).get(FEATURE_TAB_PARAM));
+        navigate(panePath(id, session, tab));
+      }}
     />
   );
 }

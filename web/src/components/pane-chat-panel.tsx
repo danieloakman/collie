@@ -35,38 +35,59 @@ export function PaneChatPanel({ paneId, session, agentStatus, hasSession }: Pane
   const anchor = useRef<{ height: number; top: number } | null>(null);
   const pendingRestore = useRef(false);
   const following = useRef(true);
+  const paneRef = useRef(paneId);
+  paneRef.current = paneId;
 
-  const loadNewest = useCallback(async () => {
-    if (!hasSession) {
-      setUnavailable("no-session");
-      setEntries([]);
-      setLoading(false);
-      return;
-    }
-    try {
-      const res = await fetchHistory(paneId, { limit: HISTORY_PAGE_SIZE }, session);
-      if (!res.available) {
-        setUnavailable(res.reason ?? "no-log");
+  const loadNewest = useCallback(
+    async (signal?: AbortSignal) => {
+      const forPane = paneId;
+      if (!hasSession) {
+        setUnavailable("no-session");
         setEntries([]);
-        setHasMore(false);
+        setLoading(false);
         return;
       }
-      setUnavailable(null);
-      setEntries(res.entries);
-      setHasMore(res.hasMore);
-      if (following.current) {
-        queueMicrotask(() => listRef.current?.scrollToBottom());
+      try {
+        const res = await fetchHistory(
+          forPane,
+          { limit: HISTORY_PAGE_SIZE },
+          session,
+          signal,
+        );
+        if (forPane !== paneRef.current) return;
+        if (!res.available) {
+          setUnavailable(res.reason ?? "no-log");
+          setEntries([]);
+          setHasMore(false);
+          return;
+        }
+        setUnavailable(null);
+        setEntries(res.entries);
+        setHasMore(res.hasMore);
+        setRenderCount(INITIAL_RENDER);
+        if (following.current) {
+          queueMicrotask(() => listRef.current?.scrollToBottom());
+        }
+      } catch (e) {
+        if (forPane !== paneRef.current) return;
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        setUnavailable("error");
+      } finally {
+        if (forPane === paneRef.current) setLoading(false);
       }
-    } catch {
-      setUnavailable("error");
-    } finally {
-      setLoading(false);
-    }
-  }, [hasSession, paneId, session]);
+    },
+    [hasSession, paneId, session],
+  );
 
   useEffect(() => {
+    const ac = new AbortController();
     setLoading(true);
-    void loadNewest();
+    setUnavailable(null);
+    setEntries([]);
+    setHasMore(false);
+    following.current = true;
+    void loadNewest(ac.signal);
+    return () => ac.abort();
   }, [loadNewest]);
 
   // Refresh when the agent finishes a turn / goes blocked — not on every 1.5s poll.
@@ -94,8 +115,10 @@ export function PaneChatPanel({ paneId, session, agentStatus, hasSession }: Pane
     if (loadingOlder || !hasMore || !oldest) return;
     captureAnchor();
     setLoadingOlder(true);
+    const forPane = paneId;
     try {
-      const res = await fetchHistory(paneId, { limit: HISTORY_PAGE_SIZE, before: oldest }, session);
+      const res = await fetchHistory(forPane, { limit: HISTORY_PAGE_SIZE, before: oldest }, session);
+      if (forPane !== paneRef.current) return;
       if (!res.available) {
         setHasMore(false);
         return;
@@ -104,9 +127,10 @@ export function PaneChatPanel({ paneId, session, agentStatus, hasSession }: Pane
       setRenderCount((c) => c + res.entries.length);
       setHasMore(res.hasMore);
     } catch {
+      if (forPane !== paneRef.current) return;
       setStatus("Couldn't load older history", "error");
     } finally {
-      setLoadingOlder(false);
+      if (forPane === paneRef.current) setLoadingOlder(false);
     }
   }, [entries, hasMore, loadingOlder, paneId, session]);
 
